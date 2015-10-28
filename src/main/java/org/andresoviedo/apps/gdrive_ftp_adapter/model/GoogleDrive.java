@@ -387,7 +387,7 @@ public final class GoogleDrive {
 		private static boolean isDirectory(File googleFile) {
 			// System.out.print("isDirectory(" + getFilename(googleFile) +
 			// ")=");
-			boolean isDirectory = "application/vnd.google-apps.folder".equals(googleFile.getMimeType());
+			boolean isDirectory = MIME_TYPE.GOOGLE_FOLDER.getValue().equals(googleFile.getMimeType());
 			// LOG.info("=" + isDirectory);
 			return isDirectory;
 		}
@@ -466,7 +466,7 @@ public final class GoogleDrive {
 			httpTransport = GoogleNetHttpTransport.newTrustedTransport();
 
 		} catch (Exception e) {
-			throw new RuntimeException("No se pudo inicializar la API de Google");
+			throw new RuntimeException("Error while initializing Google API");
 		}
 		init();
 	}
@@ -594,21 +594,19 @@ public final class GoogleDrive {
 		// get download URL
 		try {
 			File googleFile = getFile(jfsgDriveFile.getId());
-			switch (googleFile.getMimeType()) {
-			case "application/vnd.google-apps.spreadsheet":
+			final MIME_TYPE mimeType = GFile.MIME_TYPE.parse(googleFile.getMimeType());
+			if (mimeType == MIME_TYPE.GOOGLE_SHEET) {
 				jfsgDriveFile.setDownloadUrl(new URL(googleFile.getExportLinks().get(
 						"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")));
 				// file.getExportLinks().get("application/pdf")
-				break;
-			case "application/vnd.google-apps.document":
+			} else if (mimeType == MIME_TYPE.GOOGLE_DOC) {
 				jfsgDriveFile.setDownloadUrl(new URL(googleFile.getExportLinks().get(
 						"application/vnd.openxmlformats-officedocument.wordprocessingml.document")));
-				break;
-			default:
+			} else {
 				if (googleFile != null && googleFile.getDownloadUrl() != null && googleFile.getDownloadUrl().length() > 0) {
 					jfsgDriveFile.setDownloadUrl(new URL(googleFile.getDownloadUrl()));
 				} else {
-					throw new RuntimeException("No se ha podido obtener la URL de descarga del fichero '" + jfsgDriveFile.getName() + "'");
+					throw new RuntimeException("Error while obtaining the download-URL for the file '" + jfsgDriveFile.getName() + "'");
 				}
 			}
 		} catch (MalformedURLException e) {
@@ -699,7 +697,7 @@ public final class GoogleDrive {
 				// New file
 				file = new File();
 				if (jfsgFile.isDirectory()) {
-					file.setMimeType("application/vnd.google-apps.folder");
+					file.setMimeType(MIME_TYPE.GOOGLE_FOLDER.getValue());
 				}
 				file.setTitle(jfsgFile.getName());
 				file.setModifiedDate(new DateTime(jfsgFile.getLastModified() != 0 ? jfsgFile.getLastModified() : System.currentTimeMillis()));
@@ -753,7 +751,7 @@ public final class GoogleDrive {
 				}
 				return uploadFile(jfsgFile, --retry);
 			}
-			throw new RuntimeException("No se pudo subir/actualizar el fichero " + jfsgFile, e);
+			throw new RuntimeException("Error while uploading/updating the file " + jfsgFile, e);
 		}
 	}
 
