@@ -1,8 +1,5 @@
 package org.andresoviedo.apps.gdrive_ftp_adapter.controller;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Date;
@@ -14,7 +11,6 @@ import org.andresoviedo.apps.gdrive_ftp_adapter.model.Cache;
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDrive;
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDrive.GFile;
 import org.andresoviedo.apps.gdrive_ftp_adapter.service.FtpGdriveSynchService;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -163,56 +159,17 @@ public final class Controller {
 		return ret;
 	}
 
-	// TODO: Implement offset
 	public InputStream createInputStream(GFile fTPGFile, long offset) {
-		File transferFile = googleDriveService.downloadFile(fTPGFile);
-		if (transferFile == null) {
-			throw new IllegalStateException("No se dispone de la URL de descarga");
-		}
-
-		try {
-			InputStream transferFileInputStream = FileUtils.openInputStream(transferFile);
-			transferFileInputStream.skip(offset);
-			return transferFileInputStream;
-		} catch (IOException ex) {
-			return null;
-		}
-
+		return googleDriveService.downloadFileStream(fTPGFile, offset);
 	}
 
 	public OutputStream createOutputStream(final GFile fTPGFileW, long offset) {
 		final GFile fTPGFile = fTPGFileW;
 		if (fTPGFile.isDirectory()) {
-			throw new IllegalArgumentException("createOutputStream en directorio?");
+			throw new IllegalArgumentException("createOutputStream does not support directories!");
 		}
-
-		OutputStream transferFileOutputStream;
-		try {
-			final File transferFile = File.createTempFile("gdrive-synch-", ".upload." + fTPGFile.getName());
-			fTPGFile.setTransferFile(transferFile);
-			transferFileOutputStream = new FileOutputStream(transferFile) {
-				@Override
-				public void close() throws IOException {
-					com.google.api.services.drive.model.File updatedGoogleFile = null;
-					super.close();
-					try {
-						if (!fTPGFileW.isExists()) {
-							// New file
-							updatedGoogleFile = googleDriveService.uploadFile(fTPGFile);
-						} else {
-							// Update file
-							updatedGoogleFile = googleDriveService.uploadFile(fTPGFile);
-						}
-						updaterService.updateNow(updatedGoogleFile.getId());
-					} finally {
-						FileUtils.deleteQuietly(fTPGFile.getTransferFile());
-					}
-				}
-			};
-			return transferFileOutputStream;
-		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
+		
+		return googleDriveService.uploadFileStream(fTPGFile);
 	}
 
 }

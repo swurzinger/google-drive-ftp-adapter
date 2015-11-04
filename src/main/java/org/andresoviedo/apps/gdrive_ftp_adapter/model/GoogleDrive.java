@@ -30,6 +30,7 @@ import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.http.GenericUrl;
+import com.google.api.client.http.HttpRequest;
 import com.google.api.client.http.HttpResponse;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.json.JsonFactory;
@@ -655,6 +656,32 @@ public final class GoogleDrive {
 		}
 		return ret;
 	}
+	
+	public InputStream downloadFileStream(GFile jfsgDriveFile, long offset) {
+		logger.info("Downloading (streaming) file '" + jfsgDriveFile.getName() + "'...");
+		
+		try {
+			getFileDownloadURL(jfsgDriveFile);
+			if (jfsgDriveFile.getDownloadUrl() == null) {
+				return null;
+			}
+			HttpRequest httpGetRequest = drive.getRequestFactory().buildGetRequest(new GenericUrl(jfsgDriveFile.getDownloadUrl()));
+			//HttpRequest httpGetRequest = drive.files().get(jfsgDriveFile.getId()).buildHttpRequest();
+			httpGetRequest.getHeaders().set("alt", "media");
+			if (offset > 0) {
+				// see http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.35
+				// see http://stackoverflow.com/questions/3303029/http-range-header
+				httpGetRequest.getHeaders().setRange("bytes="+ offset + "-" + jfsgDriveFile.getSize());
+			}
+			HttpResponse httpResponse = httpGetRequest.execute();
+			return httpResponse.getContent();
+			//return drive.files().get(jfsgDriveFile.getId()).executeMediaAsInputStream();
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+		return null;
+	}
+	
 
 	public File mkdir(String parentId, String filename) {
 		GFile jfsgFile = new GFile(Collections.singleton(parentId), filename);
@@ -753,6 +780,10 @@ public final class GoogleDrive {
 			}
 			throw new RuntimeException("Error while uploading/updating the file " + jfsgFile, e);
 		}
+	}
+	
+	public java.io.OutputStream uploadFileStream(GFile gfsgFile) {
+		return new GoogleDriveUploadStream(drive, gfsgFile);
 	}
 
 	private long getLargestChangeIdImpl(long startLargestChangeId, int retry) {

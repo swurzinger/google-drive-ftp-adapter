@@ -124,6 +124,13 @@
 			<scope>test</scope>
 		</dependency>
 
+		
+		<dependency>
+			<groupId>org.apache.tika</groupId>
+			<artifactId>tika-core</artifactId>
+			<version>1.11</version>
+		</dependency>
+		
 	</dependencies>
 
 	<build>
