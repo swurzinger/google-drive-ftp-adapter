@@ -37,7 +37,7 @@ public class GoogleDriveUploadStream extends OutputStream {
 	private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
 
 	private final Drive drive;
-	private final int UPLOAD_CHUNK_SIZE = 256 * 1024;   // has to be a multiple of 256k
+	private final int UPLOAD_CHUNK_SIZE = 2 * 256 * 1024;   // has to be a multiple of 256k
 	private byte[] uploadCache = new byte[UPLOAD_CHUNK_SIZE];
 	private int cacheOffset = 0;
 	private long length = 0;
@@ -86,10 +86,18 @@ public class GoogleDriveUploadStream extends OutputStream {
 				if (cacheOffset > 0) {
 					fileContent = new ByteArrayContent(mimeType, uploadCache, 0, cacheOffset);
 				}
-				if (fileContent != null) {
-					uploadedFile = drive.files().insert(f, fileContent).execute();			
+				if (gfile.isExists()) {
+					if (fileContent != null) {
+						uploadedFile = drive.files().update(gfile.getId(), f, fileContent).execute();
+					} else {
+						uploadedFile = drive.files().update(gfile.getId(), f).execute();
+					}
 				} else {
-					uploadedFile = drive.files().insert(f).execute();
+					if (fileContent != null) {
+						uploadedFile = drive.files().insert(f, fileContent).execute();			
+					} else {
+						uploadedFile = drive.files().insert(f).execute();
+					}
 				}
 			} else {
 				getUploadSession();
@@ -125,10 +133,11 @@ public class GoogleDriveUploadStream extends OutputStream {
 			for (String parent : gfile.getParents()) {
 				newParents.add(new ParentReference().setId(parent));
 			}
-		} else {
+			file.setParents(newParents);
+		} else if (gfile.getCurrentParent() != null) {
 			newParents = Collections.singletonList(new ParentReference().setId(gfile.getCurrentParent().getId()));
+			file.setParents(newParents);
 		}
-		file.setParents(newParents);
 		return file;
 	}
 	
