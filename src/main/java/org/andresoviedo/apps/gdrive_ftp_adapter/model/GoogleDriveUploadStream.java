@@ -78,26 +78,15 @@ public class GoogleDriveUploadStream extends OutputStream {
 		if (uploadedFile != null) return;
 		if (length == 0) {
 			// first chunk
-			guessMimeType();
+			mimeType = guessMimeType();
 			if (cacheOffset < UPLOAD_CHUNK_SIZE) {
 				// small file -> upload without resumable session
 				File f = buildFileMetadata();
-				AbstractInputStreamContent fileContent = null;
-				if (cacheOffset > 0) {
-					fileContent = new ByteArrayContent(mimeType, uploadCache, 0, cacheOffset);
-				}
+				AbstractInputStreamContent fileContent = new ByteArrayContent(mimeType, uploadCache, 0, cacheOffset);
 				if (gfile.isExists()) {
-					if (fileContent != null) {
-						uploadedFile = drive.files().update(gfile.getId(), f, fileContent).execute();
-					} else {
-						uploadedFile = drive.files().update(gfile.getId(), f).execute();
-					}
+					uploadedFile = drive.files().update(gfile.getId(), f, fileContent).execute();
 				} else {
-					if (fileContent != null) {
-						uploadedFile = drive.files().insert(f, fileContent).execute();			
-					} else {
-						uploadedFile = drive.files().insert(f).execute();
-					}
+					uploadedFile = drive.files().insert(f, fileContent).execute();			
 				}
 			} else {
 				getUploadSession();
@@ -109,7 +98,7 @@ public class GoogleDriveUploadStream extends OutputStream {
 	}
 	
 	
-	private void guessMimeType() throws IOException {
+	private String guessMimeType() throws IOException {
 		Metadata meta = new Metadata();
 		meta.add(Metadata.RESOURCE_NAME_KEY, gfile.getName());
 		//AutoDetectParser parser = new AutoDetectParser();
@@ -117,8 +106,8 @@ public class GoogleDriveUploadStream extends OutputStream {
 		Detector detector = TikaConfig.getDefaultConfig().getDetector();
 		//Detector detector = new DefaultDetector();
 		MediaType m = detector.detect(new ByteArrayInputStream(uploadCache), meta);
-		mimeType = m.toString();
 		logger.info("Detected MIME type " + mimeType);
+		return m.toString();
 	}
 	
 	
