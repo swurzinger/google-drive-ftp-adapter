@@ -18,6 +18,7 @@ import java.util.regex.Pattern;
 import org.andresoviedo.apps.gdrive_ftp_adapter.controller.Controller;
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.Cache;
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDrive.GFile;
+import org.andresoviedo.util.Path;
 import org.andresoviedo.util.os.OSUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -433,24 +434,21 @@ public class GFtpServerFactory extends FtpServerFactory {
 				// initialize working directory in case this is the first call
 				initWorkingDirectory();
 				
-				// remove trailing FILE_SEPARATOR (but keep leading ones)
-				if (path.length() > 1 && path.endsWith(FILE_SEPARATOR)) path = path.substring(0, path.length()-1);
-
 				LOG.debug("Changing working directory from '" + currentDir + "' to '" + path + "'...");
 
 				// querying for home /
-				if (FILE_SEPARATOR.equals(path)) {
+				if (Path.equals(FILE_SEPARATOR, path)) {
 					currentDir = home;
 					return true;
 				}
 
 				// changing to current dir
-				if (FILE_SELF.equals(path)) {
+				if (Path.equals(FILE_SELF, path)) {
 					return true;
 				}
 
 				// querying for parent ..
-				if (FILE_PARENT.equals(path)) {
+				if (Path.equals(FILE_PARENT, path)) {
 
 					// lets get the parent for the current subfolder
 					FtpFileWrapper parentFile = currentDir.getParentFile();
@@ -465,13 +463,8 @@ public class GFtpServerFactory extends FtpServerFactory {
 				}
 
 				FtpFileWrapper file = null;
-				if (path.startsWith(FILE_SEPARATOR)) {
-					LOG.debug("Changing working directory to absolute path '" + path + "'...");
-					file = getFileByAbsolutePath(path);
-				} else {
-					LOG.debug("Changing working directory to relative path '" + path + "'...");
-					file = getFileByRelativePath(currentDir, path);
-				}
+				LOG.debug("Changing working directory to path '" + path + "'...");
+				file = getFileByPath(currentDir, path);
 
 				if (file != null && file.isDirectory()) {
 					currentDir = file;
@@ -514,7 +507,7 @@ public class GFtpServerFactory extends FtpServerFactory {
 			initWorkingDirectory();
 
 			try {
-				if ("./".equals(fileName)) {
+				if (Path.equals("./", fileName)) {
 					return currentDir;
 				}
 
@@ -522,7 +515,8 @@ public class GFtpServerFactory extends FtpServerFactory {
 					return currentDir;
 				}
 
-				return fileName.startsWith(FILE_SEPARATOR) ? getFileByAbsolutePath(fileName) : getFileByName(currentDir, fileName);
+				return getFileByPath(currentDir, fileName);
+				
 			} catch (IllegalArgumentException e) {
 				LOG.error(e.getMessage());
 				throw new FtpException(e.getMessage(), e);
@@ -531,70 +525,100 @@ public class GFtpServerFactory extends FtpServerFactory {
 				throw new FtpException(e.getMessage(), e);
 			}
 		}
-
+		
+		
+		
 		/**
-		 * Path could be one of the following:
+		 * Get file by its path. The following paths are supported:
 		 * <ul>
-		 * <li>/</li>
-		 * <li>/file1</li>
-		 * <li>/folder1</li>
-		 * <li>/folder1/subfolder1</li>
-		 * <li>/folder1/subfolder1/file2</li>
+		 * <li>absolute path: /, /file.txt, /folder/file.txt</li>
+		 * <li>relative to basefolder: file.txt, subfolder/file.txt</li>
+		 * <li>relative to currentDir: file.txt, subfolder/file.txt</li>
+		 * <ul>
+		 * <li>basefolder = null</li>
+		 * </ul>
 		 * </ul>
 		 * 
-		 * @param path
-		 * @return
+		 * Encoded file/folder names are supported:
+		 * <ul>
+		 * <li>/file__ID__google_file_id__ID__.txt</li>
+		 * <li>/folder__ID__google_file_id__ID__/file.txt</li>
+		 * <li>/folder__ID__google_file_id__ID__/subfolder__ID__google_file_id__ID__/file.txt</li>
+		 * </ul>
+		 * 
+		 * Special paths like "." and ".." are NOT supported.
+		 * 
+		 * @param basefolder
+		 *            the base folder, only used for relative paths
+		 * @param fileName
+		 *            the name of the file. This name can come encoded
+		 * 
+		 * @return the ftp wrapped file that can exist or not
 		 */
-		private FtpFileWrapper getFileByAbsolutePath(String path) {
-			if (!path.startsWith(FILE_SEPARATOR)) {
-				throw new IllegalArgumentException("Path '" + path + "' should start with '" + FILE_SEPARATOR + "'");
-			}
-			if (currentDir.getAbsolutePath().equals(path)) {
+		private FtpFileWrapper getFileByPath(FtpFileWrapper basefolder, String path) {
+			if (Path.equals(currentDir.getAbsolutePath(), path)) {
 				LOG.debug("Requested file is the current dir '" + currentDir + "'");
 				return currentDir;
 			}
 
 			FtpFileWrapper folder;
-			if (path.startsWith(currentDir.isRoot() ? currentDir.getAbsolutePath() : currentDir.getAbsolutePath() + FILE_SEPARATOR)) {
-				// get the relative filename
-				folder = currentDir;
-				path = path.substring(folder.getAbsolutePath().length() + 1);
+			if (path.startsWith(Path.PATH_SEPARATOR)) {
+				if (path.startsWith(Path.join(currentDir.getAbsolutePath(), Path.PATH_SEPARATOR))) {
+					// relative to currentDir; get the relative filename
+					folder = currentDir;
+					path = path.substring(Path.join(currentDir.getAbsolutePath(), Path.PATH_SEPARATOR).length());
+				} else {
+					// absolute path; remove starting slash
+					folder = home;
+					path = path.substring(1);
+				}
 			} else {
-				// remove starting slash
-				folder = home;
-				path = path.substring(1);
+				if (basefolder != null) {
+					// relative path to basefolder
+					folder = basefolder;
+				} else {
+					// relative path to currentDir
+					folder = currentDir;
+				}
 			}
-
-			return getFileByRelativePath(folder, path);
-		}
-
-		private FtpFileWrapper getFileByRelativePath(FtpFileWrapper folder, String path) {
-			FtpFileWrapper file = null;
-			if (!path.contains(FILE_SEPARATOR)) {
-				// this is a folder file
-				LOG.debug("Getting file '" + path + "' for directory '" + folder.getAbsolutePath() + "'...");
-				file = getFileByName(folder, path);
-				return file;
-			}
-
+			
 			LOG.debug("Getting file '" + path + "' inside directory '" + folder.getAbsolutePath() + "'...");
 			for (String part : path.split(FtpFileSystemView.FILE_SEPARATOR)) {
-				file = getFileByName(folder, part);
-				folder = file;
+				if (folder == null) {
+					LOG.debug("file '" + path + "' not found !");
+					return null;
+				}
+				folder = getFileByName(folder, part);
 			}
-			return file;
+			return folder;
 		}
+		
 
 		/**
-		 * Get file by its name. Folder & name can be any of the following:
+		 * Get file by its name. Name can be any of the following:
 		 * 
 		 * <ul>
-		 * <li>/,file.txt</li>
-		 * <li>/,folder/file.txt</li>
-		 * <li>/,folder/subfolder/file.txt</li>
-		 * <li>/,file__ID__google_file_id__ID__.txt</li>
-		 * <li>/,folder__ID__google_file_id__ID__/file.txt</li>
-		 * <li>/,folder__ID__google_file_id__ID__/subfolder__ID__google_file_id__ID__/file.txt</li>
+		 * <li>file.txt</li>
+		 * <li>file__ID__google_file_id__ID__.txt</li>
+		 * </ul>
+		 * 
+		 * Folder can be any of the following:
+		 * <ul>
+		 * <li>absolute:</li>
+		 * <ul>
+		 * <li>/</li>
+		 * <li>/folder</li>
+		 * <li>/folder/subfolder/</li>
+		 * <li>/folder__ID__google_file_id__ID__</li>
+		 * <li>/folder__ID__google_file_id__ID__/subfolder__ID__google_file_id__ID__/</li>
+		 * </ul>
+		 * <li>relative to current directory:</li>
+		 * <ul>
+		 * <li>folder</li>
+		 * <li>folder/subfolder/</li>
+		 * <li>folder__ID__google_file_id__ID__</li>
+		 * <li>folder__ID__google_file_id__ID__/subfolder__ID__google_file_id__ID__/</li>
+		 * </ul>
 		 * </ul>
 		 * 
 		 * @param folder
@@ -605,48 +629,41 @@ public class GFtpServerFactory extends FtpServerFactory {
 		 * @return the ftp wrapped file that can exist or not
 		 */
 		private FtpFileWrapper getFileByName(FtpFileWrapper folder, String fileName) {
-			String absolutePath = folder.getAbsolutePath() + (folder.isRoot() ? "" : FILE_SEPARATOR) + fileName;
-			LOG.debug("Querying for file '" + absolutePath + "' inside folder '" + folder + "'...");
-
+			
+			LOG.debug("Querying for file '" + fileName + "' inside folder '" + folder.getAbsolutePath() + "'...");
+			
 			try {
-				GFile fileByName = model.getFileByName(folder.getId(), fileName);
-				if (fileByName != null) {
-					LOG.debug("File '" + fileName + "' found");
-					return createFtpFileWrapper(folder, fileByName, fileName, true);
-				}
-				LOG.debug("File '" + fileName + "' doesn't exist!");
-
-				// Encoded?
-				int nextIdx = fileName.indexOf(DUP_FILE_TOKEN);
-				if (nextIdx != -1 && ENCODED_FILE_PATTERN.matcher(fileName).matches()) {
-					// caso normal
-
-					// Get file when the name is encoded. The encode name has the form:
-					// <filename>__ID__<google_file_id>_ID.<ext>.
-					Matcher matcher = ENCODED_FILE_PATTERN.matcher(fileName);
-					matcher.find();
-
-					// Decode file name & id...
-					String expectedFileName = matcher.group(1) + matcher.group(3);
-					final String fileId = matcher.group(2);
-
-					LOG.info("Searching encoded file '" + folder.getAbsolutePath() + (folder.isRoot() ? "" : FILE_SEPARATOR)
-							+ expectedFileName + "' ('" + fileId + "')...");
-					GFile gfile = model.getFile(fileId);
-					if (gfile != null
-							&& (expectedFileName.equals(gfile.getName()) || removeIllegalChars(gfile.getName()).equals(
-									expectedFileName))) {
-						// The file id exists, but we have to check also for filename so we are sure the referred file
-						// is the same
-						// TODO: check also the containing folder is the same
-						return createFtpFileWrapper(folder, gfile, fileName, true);
+				String[] filenameDecodedInfo = decodeFilename(fileName);
+				String decodedFilename = filenameDecodedInfo[0];
+				String fileId = filenameDecodedInfo[1];
+				
+				GFile cachedFile;
+				if (fileId != null) {
+					LOG.info("Searching decoded file '" + Path.join(folder.getAbsolutePath(), decodedFilename) + "' ('" + fileId + "')...");
+					cachedFile = model.getFile(fileId);
+					if (cachedFile != null && removeIllegalChars(cachedFile.getName()).equals(decodedFilename) &&
+							cachedFile.getParents().contains(folder.getId())) {
+						// The file id exists, but we have to check also for equality of filename and containing folder
+						// so we are quite sure the referred file is the same
+						LOG.debug("Encoded file '" + fileName + "' found");
+						return createFtpFileWrapper(folder, cachedFile, fileName, true);
+					} else {
+						LOG.info("Encoded file '" + fileName + "' ('" + fileId + "') not found");
 					}
 
-					LOG.info("Encoded file '" + folder.getAbsolutePath() + (folder.isRoot() ? "" : FILE_SEPARATOR) + expectedFileName
-							+ "' ('" + fileId + "') not found");
+				} else {
+					cachedFile = model.getFileByName(folder.getId(), fileName);
+					if (cachedFile != null) {
+						LOG.debug("File '" + fileName + "' found");
+						return createFtpFileWrapper(folder, cachedFile, fileName, true);
+					} else {
+						LOG.debug("File '" + fileName + "' doesn't exist!");
+					}
 				}
-
+				
+				// file does not exist
 				return createFtpFileWrapper(folder, new GFile(Collections.singleton(folder.getId()), fileName), fileName, false);
+				
 			} catch (IncorrectResultSizeDataAccessException e) {
 				// INFO: this happens when the user wants to get a file which actually exists, but because it's
 				// duplicated, the client should see the generated virtual name (filename encoded name with id).
@@ -666,9 +683,7 @@ public class GFtpServerFactory extends FtpServerFactory {
 				LOG.info("Filename with illegal chars '" + filename + "' has been given virtual name '" + filenameWithoutIllegalChars + "'");
 			}
 
-			String absolutePath = folder == null ? filename : folder.isRoot() ? FILE_SEPARATOR + filename : folder.getAbsolutePath()
-					+ FILE_SEPARATOR + filename;
-			LOG.debug("Creating file wrapper " + absolutePath);
+			LOG.debug("Creating file wrapper " + (folder == null ? filename : Path.join(folder.getAbsolutePath(), filename)));
 			return new FtpFileWrapper(folder, gFile, filename);
 		}
 
@@ -734,6 +749,27 @@ public class GFtpServerFactory extends FtpServerFactory {
 			// this instruction by the way is executed several times but it doesn't matter because the generated
 			// name is always the same
 			return filename + DUP_FILE_TOKEN + fileId + DUP_FILE_TOKEN + ext;
+		}
+		
+		/**
+		 * Decodes the filename (if encoded)
+		 * @param filename name of a file without path
+		 * @return String[] containing [0] decoded filename and [1] file id (if encoded) or null
+		 */
+		private String[] decodeFilename(String filename) {
+			// Encoded?
+			int nextIdx = filename.indexOf(DUP_FILE_TOKEN);
+			if (nextIdx != -1 && ENCODED_FILE_PATTERN.matcher(filename).matches()) {
+				// Get file when the name is encoded. The encode name has the form:
+				// <filename>__ID__<google_file_id>_ID.<ext>
+				Matcher matcher = ENCODED_FILE_PATTERN.matcher(filename);
+				matcher.find();
+
+				// Decode file name & id...
+				return new String[] {matcher.group(1) + matcher.group(3), matcher.group(2)};
+			}
+			// not encoded
+			return new String[] {filename, null};
 		}
 	}
 

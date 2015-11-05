@@ -13,6 +13,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDrive.GFile;
+import org.andresoviedo.util.Path;
 import org.apache.commons.dbcp.BasicDataSource;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -67,7 +68,7 @@ public final class SQLiteCache implements Cache {
 			}
 		}
 
-		String dataFile = "data/" + account + "/gdrive.db";
+		String dataFile = Path.join("data", account, "gdrive.db");
 		LOG.info("Loading database '" + dataFile + "'...");
 
 		dataSource = new BasicDataSource();
@@ -398,7 +399,6 @@ public final class SQLiteCache implements Cache {
 	long getLowerChangedId() {
 		r.lock();
 		try {
-
 			return jdbcTemplate.queryForObject("select min(revision) from " + TABLE_FILES + " where revision > 0", Long.class);
 		} finally {
 			r.unlock();

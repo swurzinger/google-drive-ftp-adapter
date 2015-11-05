@@ -55,8 +55,6 @@ public final class Controller {
 
 	private static final Log LOG = LogFactory.getLog(Controller.class);
 
-	public static final String FILE_SEPARATOR = "/";
-
 	private final GoogleDrive googleDriveService;
 
 	private final FtpGdriveSynchService updaterService;
