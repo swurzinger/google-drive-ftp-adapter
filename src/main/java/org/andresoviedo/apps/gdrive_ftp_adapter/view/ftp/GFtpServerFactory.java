@@ -641,8 +641,9 @@ public class GFtpServerFactory extends FtpServerFactory {
 				if (fileId != null) {
 					LOG.info("Searching decoded file '" + Path.join(folder.getAbsolutePath(), decodedFilename) + "' ('" + fileId + "')...");
 					cachedFile = model.getFile(fileId);
-					if (cachedFile != null && removeIllegalChars(cachedFile.getName()).equals(decodedFilename) &&
-							cachedFile.getParents().contains(folder.getId())) {
+					if (cachedFile != null && removeIllegalChars(cachedFile.getName()).equals(decodedFilename)) {
+						// && cachedFile.getParents().contains(folder.getId())
+						// TODO: check for parents as soon as SQL cache supports it (rowmapper)
 						// The file id exists, but we have to check also for equality of filename and containing folder
 						// so we are quite sure the referred file is the same
 						LOG.debug("Encoded file '" + fileName + "' found");
