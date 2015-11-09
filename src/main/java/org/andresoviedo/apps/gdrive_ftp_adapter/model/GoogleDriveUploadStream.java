@@ -33,24 +33,27 @@ import com.google.api.services.drive.model.ParentReference;
 
 public class GoogleDriveUploadStream extends OutputStream {
 
-	private static final Log logger = LogFactory.getLog(GoogleDrive.class);
+	private static int DEFAULT_UPLOAD_CHUNK_SIZE = 256 * 1024;   // has to be a multiple of 256k
+
+	private static final Log logger = LogFactory.getLog(GoogleDriveUploadStream.class);
 	private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
 
 	private final Drive drive;
-	private final int UPLOAD_CHUNK_SIZE = 2 * 256 * 1024;   // has to be a multiple of 256k
-	private byte[] uploadCache = new byte[UPLOAD_CHUNK_SIZE];
+	private byte[] uploadCache;
 	private int cacheOffset = 0;
 	private long length = 0;
-	//private boolean isClosed = false;
 	private GFile gfile;
 	
 	private String mimeType = "application/octet-stream";
 	private String uploadUri = null;
 	private File uploadedFile = null;
+	
+	private long startTime = 0;
 
 	public GoogleDriveUploadStream(Drive drive, GFile gfile) {
 		this.drive = drive;
 		this.gfile = gfile;
+		uploadCache = new byte[DEFAULT_UPLOAD_CHUNK_SIZE];
 	}
 
 	@Override
@@ -58,8 +61,27 @@ public class GoogleDriveUploadStream extends OutputStream {
 
 		uploadCache[cacheOffset++] = (byte) b;
 
-		if (cacheOffset == UPLOAD_CHUNK_SIZE) {
+		if (cacheOffset == uploadCache.length) {
 			handleChunk();
+			if (startTime > 0) {
+				long endTime = System.nanoTime();
+				try {
+					int kfactor = (int) (((long)uploadCache.length * 3000 / ((endTime-startTime)/1000000)) / (256*1024));
+					if (kfactor < 1) kfactor = 1;			// 256 kB/s
+					if (kfactor > 200) kfactor = 200;		//  50 MB/s
+					DEFAULT_UPLOAD_CHUNK_SIZE = kfactor*256*1024;
+				}
+				catch (Exception e){
+					// over/underflow on very slow/fast connection maybe possible => ignore
+				}
+				int newCacheSize = DEFAULT_UPLOAD_CHUNK_SIZE;
+				// only change cache size if > 20% difference
+				if (newCacheSize != uploadCache.length && Math.abs((long)newCacheSize-uploadCache.length)*100/uploadCache.length > 20) {
+					logger.info("Changing upload cache size to " + newCacheSize/1024 + " kBytes");
+					uploadCache = new byte[newCacheSize];
+				}
+			}
+			startTime = System.nanoTime();
 		}
 	}
 
@@ -79,7 +101,7 @@ public class GoogleDriveUploadStream extends OutputStream {
 		if (length == 0) {
 			// first chunk
 			mimeType = guessMimeType();
-			if (cacheOffset < UPLOAD_CHUNK_SIZE) {
+			if (cacheOffset < uploadCache.length) {
 				// small file -> upload without resumable session
 				File f = buildFileMetadata();
 				AbstractInputStreamContent fileContent = new ByteArrayContent(mimeType, uploadCache, 0, cacheOffset);
@@ -160,7 +182,7 @@ public class GoogleDriveUploadStream extends OutputStream {
 	private void uploadChunk(boolean close) throws IOException {
 		HttpContent content = new ByteArrayContent(mimeType, uploadCache, 0, cacheOffset);
 		HttpRequest request = drive.getRequestFactory().buildPutRequest(new GenericUrl(uploadUri), content);
-		request.getHeaders().setContentRange("bytes " + (cacheOffset == 0 ? "*" : length + "-" + (length+cacheOffset-1)) + "/" + (close || cacheOffset < UPLOAD_CHUNK_SIZE ? (length+cacheOffset) : "*"));
+		request.getHeaders().setContentRange("bytes " + (cacheOffset == 0 ? "*" : length + "-" + (length+cacheOffset-1)) + "/" + (close || cacheOffset < uploadCache.length ? (length+cacheOffset) : "*"));
 		request.setThrowExceptionOnExecuteError(false);
 		HttpResponse response = request.execute();
 		logger.debug("Uploaded chunk [" + response.getStatusCode() + "]: offset " + length + ", length " + cacheOffset);
