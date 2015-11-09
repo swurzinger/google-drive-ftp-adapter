@@ -38,6 +38,8 @@ public class GoogleDriveUploadStream extends OutputStream {
 	private static final Log logger = LogFactory.getLog(GoogleDriveUploadStream.class);
 	private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
 
+	private final int MAX_RETRY_COUNT = 3;
+	
 	private final Drive drive;
 	private byte[] uploadCache;
 	private int cacheOffset = 0;
@@ -62,7 +64,19 @@ public class GoogleDriveUploadStream extends OutputStream {
 		uploadCache[cacheOffset++] = (byte) b;
 
 		if (cacheOffset == uploadCache.length) {
-			handleChunk();
+			for (int nTry = 0; nTry < MAX_RETRY_COUNT; nTry++) {
+				try {
+					handleChunk();
+					break;
+				} catch (IOException ex) {
+					if (nTry == MAX_RETRY_COUNT-1) throw ex;
+				}
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					//throw new RuntimeException(e);
+				}
+			}
 			if (startTime > 0) {
 				long endTime = System.nanoTime();
 				try {
@@ -92,7 +106,19 @@ public class GoogleDriveUploadStream extends OutputStream {
 
 	@Override
 	public void close() throws IOException {
-		handleChunk();
+		for (int nTry = 0; nTry < MAX_RETRY_COUNT; nTry++) {
+			try {
+				handleChunk();
+				break;
+			} catch (IOException ex) {
+				if (nTry == MAX_RETRY_COUNT-1) throw ex;
+			}
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				//throw new RuntimeException(e);
+			}
+		}
 	}
 	
 	
