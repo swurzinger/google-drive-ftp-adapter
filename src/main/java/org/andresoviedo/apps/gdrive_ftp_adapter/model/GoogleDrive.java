@@ -520,13 +520,32 @@ public final class GoogleDrive {
 	}
 
 	public List<File> list(String folderId) {
-		return list_impl(folderId, 3);
+		final int RETRY_CNT = 3;
+		for (int retryNo = 0; retryNo <= RETRY_CNT; retryNo++) {
+			try {
+				return list_impl(folderId);
+			} catch (Exception e) {
+				if (retryNo < RETRY_CNT) {
+					retryNo++;
+					try {
+						Thread.sleep((long)(retryNo * 1000 * (0.5+Math.random())));
+					} catch (InterruptedException e1) {
+						throw new RuntimeException(e1);
+					}
+					logger.info("retrying list (" + retryNo + ". attempt) ...");
+				} else {
+					throw new RuntimeException(e);
+				}
+			}
+		}
+		//that code should be never reached
+		throw new RuntimeException();
 	}
 
-	private List<File> list_impl(String id, int retry) {
+	private List<File> list_impl(String id) throws IOException, InterruptedException {
 		try {
 			List<File> childIds = new ArrayList<File>();
-			logger.trace("list(" + id + ") retry " + retry);
+			logger.trace("list(" + id + ")");
 
 			Files.List request = drive.files().list();
 			request.setQ("trashed = false and '" + id + "' in parents");
@@ -548,25 +567,33 @@ public final class GoogleDrive {
 				return null;
 			}
 			throw new RuntimeException(e);
-		} catch (Exception e) {
-			if (retry > 0) {
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e1) {
-					throw new RuntimeException(e1);
-				}
-				logger.info("retrying...");
-				return list_impl(id, --retry);
-			}
-			throw new RuntimeException(e);
 		}
 	}
 
 	public File getFile(String fileId) {
-		return getFile_impl(fileId, 3);
+		final int RETRY_CNT = 3;
+		for (int retryNo = 0; retryNo <= RETRY_CNT; retryNo++) {
+			try {
+				return getFile_impl(fileId);
+			} catch (Exception e) {
+				if (retryNo < RETRY_CNT) {
+					retryNo++;
+					try {
+						Thread.sleep((long)(retryNo * 1000 * (0.5+Math.random())));
+					} catch (InterruptedException e1) {
+						throw new RuntimeException(e1);
+					}
+					logger.info("retrying getFile (" + retryNo + ". attempt) ...");
+				} else {
+					throw new RuntimeException(e);
+				}
+			}
+		}
+		//that code should be never reached
+		throw new RuntimeException();
 	}
 
-	private File getFile_impl(String fileId, int retry) {
+	private File getFile_impl(String fileId) throws IOException {
 		try {
 			logger.trace("getFile(" + fileId + ")");
 			File file = drive.files().get(fileId).execute();
@@ -575,17 +602,6 @@ public final class GoogleDrive {
 		} catch (GoogleJsonResponseException e) {
 			if (e.getStatusCode() == 404) {
 				return null;
-			}
-			throw new RuntimeException(e);
-		} catch (Exception e) {
-			if (retry > 0) {
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e1) {
-					throw new RuntimeException(e1);
-				}
-				logger.info("retrying...");
-				return getFile_impl(fileId, --retry);
 			}
 			throw new RuntimeException(e);
 		}
