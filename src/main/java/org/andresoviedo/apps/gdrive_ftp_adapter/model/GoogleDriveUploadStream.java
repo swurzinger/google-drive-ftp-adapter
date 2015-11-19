@@ -3,11 +3,14 @@ package org.andresoviedo.apps.gdrive_ftp_adapter.model;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDrive.GFile;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.tika.config.TikaConfig;
@@ -51,11 +54,18 @@ public class GoogleDriveUploadStream extends OutputStream {
 	private File uploadedFile = null;
 	
 	private long startTime = 0;
+	private MessageDigest md5 = null;
 
 	public GoogleDriveUploadStream(Drive drive, GFile gfile) {
 		this.drive = drive;
 		this.gfile = gfile;
 		uploadCache = new byte[DEFAULT_UPLOAD_CHUNK_SIZE];
+		try {
+			md5 = MessageDigest.getInstance("MD5");
+		} catch (NoSuchAlgorithmException e) {
+			// according to the documentation MD5 has to be available on a standard Java implementation
+			// if not available (md5 == null), then don't verify checksum
+		}
 	}
 
 	@Override
@@ -64,19 +74,7 @@ public class GoogleDriveUploadStream extends OutputStream {
 		uploadCache[cacheOffset++] = (byte) b;
 
 		if (cacheOffset == uploadCache.length) {
-			for (int nTry = 0; nTry < MAX_RETRY_COUNT; nTry++) {
-				try {
-					handleChunk();
-					break;
-				} catch (IOException ex) {
-					if (nTry == MAX_RETRY_COUNT-1) throw ex;
-				}
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					//throw new RuntimeException(e);
-				}
-			}
+			handleChunkWithRetry();
 			if (startTime > 0) {
 				long endTime = System.nanoTime();
 				try {
@@ -106,6 +104,27 @@ public class GoogleDriveUploadStream extends OutputStream {
 
 	@Override
 	public void close() throws IOException {
+		handleChunkWithRetry();
+		if (md5 != null && uploadedFile != null) {
+			String md5Local = new String(Hex.encodeHex(md5.digest()));
+			String md5Remote = uploadedFile.getMd5Checksum();
+			if (md5Local.equalsIgnoreCase(md5Remote)) {
+				logger.info("MD5 Digest Check: PASSED (" + uploadedFile.getTitle() + ")");
+			} else {
+				logger.error("MD5 Digest Check: FAILED (" + uploadedFile.getTitle() + ")");
+				//TODO: clean up / recover from error
+				throw new IOException("integrity check failed");
+			}
+			md5 = null; // close() will be called several times; execute MD5 check only once
+		}
+	}
+	
+	
+	private void handleChunkWithRetry() throws IOException {
+		if (uploadedFile != null) return;
+		if (md5 != null && cacheOffset > 0) {
+			md5.update(uploadCache, 0, cacheOffset);
+		}
 		for (int nTry = 0; nTry < MAX_RETRY_COUNT; nTry++) {
 			try {
 				handleChunk();
