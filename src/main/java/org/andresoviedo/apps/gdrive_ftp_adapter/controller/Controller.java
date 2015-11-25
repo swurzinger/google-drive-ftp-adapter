@@ -1,5 +1,6 @@
 package org.andresoviedo.apps.gdrive_ftp_adapter.controller;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Date;
@@ -9,6 +10,7 @@ import java.util.Map;
 
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.Cache;
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDrive;
+import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDriveUploadStream;
 import org.andresoviedo.apps.gdrive_ftp_adapter.model.GoogleDrive.GFile;
 import org.andresoviedo.apps.gdrive_ftp_adapter.service.FtpGdriveSynchService;
 import org.apache.commons.logging.Log;
@@ -166,8 +168,24 @@ public final class Controller {
 		if (fTPGFile.isDirectory()) {
 			throw new IllegalArgumentException("createOutputStream does not support directories!");
 		}
-		
-		return googleDriveService.uploadFileStream(fTPGFile);
+		return new OutputStream() {
+			
+			private GoogleDriveUploadStream upstream = (GoogleDriveUploadStream)googleDriveService.uploadFileStream(fTPGFile);
+			
+			@Override
+			public void write(int b) throws IOException {
+				upstream.write(b);
+			}
+			
+			@Override
+			public void close() throws IOException {
+				upstream.close();
+				if (upstream.getUploadedFile() != null) {
+					updaterService.updateNow(upstream.getUploadedFile().getId());
+				}
+				super.close();
+			}
+		};
 	}
 
 }

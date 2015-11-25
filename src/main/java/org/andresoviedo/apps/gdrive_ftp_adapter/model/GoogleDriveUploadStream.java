@@ -96,6 +96,10 @@ public class GoogleDriveUploadStream extends OutputStream {
 			startTime = System.nanoTime();
 		}
 	}
+	
+	public File getUploadedFile() {
+		return uploadedFile;
+	}
 
 	@Override
 	public void flush() throws IOException {
